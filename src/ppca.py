@@ -91,7 +91,7 @@ class PPCA(object):
             ss[:len(s)] = s
         else:
             ss = s[:self.q]
-        ss -= np.sqrt(self.prior_sigma)
+        ss = np.sqrt(np.maximum(0, ss**2 - self.prior_sigma))
         w = u[:, :self.q].dot(np.diag(ss))
         if self.q < self.p:
             sigma = 1.0 / (self.p - self.q) * np.sum(s[self.q:]**2)
