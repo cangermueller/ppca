@@ -1,14 +1,10 @@
 import numpy as np
 from numpy import transpose as tr
 from numpy.linalg import inv
-import ipdb
-
+import pdb
 
 class BPPCA(object):
-    def __init__(self):
-        pass
-
-    def fit(self, y, q=2, hyper=None):
+    def __init__(self, y, q=2, hyper=None):
         self.y = y
         self.p = y.shape[0]
         self.q = q
@@ -17,44 +13,79 @@ class BPPCA(object):
             self.hyper = HyperParameters()
         else:
             self.hyper = hyper
-        self.fit_vb()
 
-    def fit_vb(self, maxit=10):
+    def fit(self, *args, **kwargs):
+        self.fit_vb(*args, **kwargs)
+
+    def fit_transform(self, *args, **kwargs):
+        self.fit(*args, **kwargs)
+        return self.transform()
+
+    def transform(self, y=None):
+        if y is None:
+            return self.q_dist.x_mean
+        q = self.q_dist
+        [w, mu, sigma] = [q.w, q.mu, q.gamma**-1]
+        m = tr(w).dot(w) + sigma * np.eye(w.shape[1])
+        m = inv(m)
+        x = m.dot(tr(w)).dot(y - mu)
+        return x
+
+    def transform_infers(self, x=None, noise=False):
+        q = self.q_dist
+        if x is None:
+            x = q.x_mean
+        [w, mu, sigma] = [q.w_mean, q.mu_mean, q.gamma_mean()**-1]
+        y = w.dot(x) + mu[:, np.newaxis]
+        if noise:
+            for i in xrange(y.shape[1]):
+                e = np.random.normal(0, sigma, y.shape[0])
+                y[:, i] += e
+        return y
+
+    def mse(self):
+        d = self.y - self.transform_infers()
+        d = d.ravel()
+        return self.n**-1 * d.dot(d)
+
+    def fit_vb(self, maxit=20):
         self.q_dist = Qdistribution(self.n, self.p, self.q)
         for i in xrange(maxit):
             self.update()
 
     def update(self):
-        self.update_x()
-        self.update_w()
         self.update_mu()
+        self.update_w()
+        self.update_x()
         self.update_alpha()
         self.update_gamma()
 
     def update_x(self):
         q = self.q_dist
         gamma_mean = q.gamma_a / q.gamma_b
-        q.x_mean = gamma_mean * q.x_cov.dot(tr(q.w_mean)).dot(self.y - q.mu_mean[:, np.newaxis])
         q.x_cov = inv(np.eye(self.q) + gamma_mean * tr(q.w_mean).dot(q.w_mean))
+        q.x_mean = gamma_mean * q.x_cov.dot(tr(q.w_mean)).dot(self.y - q.mu_mean[:, np.newaxis])
 
     def update_w(self):
         q = self.q_dist
-        yc = self.y - q.mu_mean[:, np.newaxis]
-        q.w_mean = q.gamma_a / q.gamma_b * q.w_cov.dot(q.x_mean.dot(tr(yc)))
-        q.w_mean = tr(q.w_mean)
+        # cov
         x_cov = np.zeros((self.q, self.q))
         for n in xrange(self.n):
             x = q.x_mean[:, n]
             x_cov += x[:, np.newaxis].dot(np.array([x]))
-        q.w_cov = np.diag(q.alpha_a / q.alpha_b) + q.gamma_a / q.gamma_b * x_cov
+        q.w_cov = np.diag(q.alpha_a / q.alpha_b) + q.gamma_mean() * x_cov
         q.w_cov = inv(q.w_cov)
+        # mean
+        yc = self.y - q.mu_mean[:, np.newaxis]
+        q.w_mean = q.gamma_mean() * q.w_cov.dot(q.x_mean.dot(tr(yc)))
+        q.w_mean = tr(q.w_mean)
 
     def update_mu(self):
         q = self.q_dist
         gamma_mean = q.gamma_a / q.gamma_b
-        q.mu_mean = np.sum(self.y - q.w_mean.dot(q.x_mean), 1)
-        q.mu_mean *= gamma_mean * q.mu_cov.dot(q.mu_mean)
         q.mu_cov = (self.hyper.beta + self.n * gamma_mean)**-1 * np.eye(self.p)
+        q.mu_mean = np.sum(self.y - q.w_mean.dot(q.x_mean), 1)
+        q.mu_mean = gamma_mean * q.mu_cov.dot(q.mu_mean)
 
     def update_alpha(self):
         q = self.q_dist
@@ -75,18 +106,6 @@ class BPPCA(object):
             q.gamma_b += 2.0 * q.mu_mean.dot(w).dot(x[:, np.newaxis])
             q.gamma_b -= 2.0 * y.dot(w).dot(x)
             q.gamma_b -= 2.0 * y.dot(q.mu_mean)
-
-    def transform_infers(self, x=None, noise=False):
-        q = self.q_dist
-        if x is None:
-            x = q.x_mean
-        [w, mu, sigma] = [q.w_mean, q.mu_mean, q.gamma_mean()**-1]
-        y = w.dot(x) + mu[:, np.newaxis]
-        if noise:
-            for i in xrange(y.shape[1]):
-                e = np.random.normal(0, sigma, y.shape[0])
-                y[:, i] += e
-        return y
 
 
 
@@ -120,3 +139,6 @@ class Qdistribution(object):
 
     def gamma_mean(self):
         return self.gamma_a / self.gamma_b
+
+    def alpha_mean(self):
+        return self.alpha_a / self.alpha_b
