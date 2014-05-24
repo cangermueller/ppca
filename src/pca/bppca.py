@@ -13,6 +13,7 @@ class BPPCA(object):
             self.hyper = HyperParameters()
         else:
             self.hyper = hyper
+        self.q_dist = Qdistribution(self.n, self.p, self.q)
 
     def fit(self, *args, **kwargs):
         self.fit_vb(*args, **kwargs)
@@ -49,7 +50,6 @@ class BPPCA(object):
         return self.n**-1 * d.dot(d)
 
     def fit_vb(self, maxit=20):
-        self.q_dist = Qdistribution(self.n, self.p, self.q)
         for i in xrange(maxit):
             self.update()
 
