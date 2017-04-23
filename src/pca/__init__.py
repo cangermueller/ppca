@@ -1,2 +1,2 @@
-import ppca
-import bppca
+from . import ppca
+from . import bppca
